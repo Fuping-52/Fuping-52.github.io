@@ -2,3 +2,4 @@ User-agent: *
 Allow: /
 
 Sitemap: https://fuping-52.github.io/sitemap.xml
+Sitemap: https://fuping-52.github.io/office/sitemap.xml
