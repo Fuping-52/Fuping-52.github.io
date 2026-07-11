@@ -219,6 +219,25 @@ body{font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif;co
 .fee-notes h4{font-size:1rem;font-weight:700;color:var(--navy);margin-bottom:.6rem}
 .fee-notes ol{padding-left:1.2rem;color:var(--gray-700);font-size:.88rem;line-height:2}
 
+/* ===== FAQ Section ===== */
+#faq{background:var(--gray-50)}
+.faq-list{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:1rem}
+.faq-item{background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);overflow:hidden;transition:border-color .3s,box-shadow .3s}
+.faq-item.open{border-color:var(--gold);box-shadow:var(--shadow)}
+.faq-q{display:flex;align-items:center;gap:.9rem;width:100%;text-align:left;background:none;border:0;cursor:pointer;padding:1.15rem 1.5rem;font-size:1.02rem;font-weight:600;color:var(--navy);line-height:1.55;letter-spacing:.01em}
+.faq-q .qmark{flex:none;width:28px;height:28px;border-radius:50%;background:var(--gold-pale);color:var(--gold);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:.9rem}
+.faq-item.open .faq-q .qmark{background:var(--gold);color:#fff}
+.faq-q .qtext{flex:1}
+.faq-q .plus{flex:none;width:20px;height:20px;position:relative;transition:transform .35s cubic-bezier(.4,0,.2,1)}
+.faq-q .plus::before,.faq-q .plus::after{content:"";position:absolute;background:var(--gold);border-radius:2px}
+.faq-q .plus::before{top:9px;left:0;width:20px;height:2px}
+.faq-q .plus::after{top:0;left:9px;width:2px;height:20px}
+.faq-item.open .faq-q .plus{transform:rotate(135deg)}
+.faq-a{height:0;overflow:hidden;transition:height .4s cubic-bezier(.4,0,.2,1)}
+.faq-a-inner{padding:0 1.5rem 1.25rem 3.4rem;color:var(--gray-700);font-size:.95rem;line-height:1.85}
+@media(max-width:768px){.faq-q{font-size:.94rem;padding:1rem 1.1rem;gap:.6rem}.faq-a-inner{padding:0 1.1rem 1.1rem 1.1rem}}
+@media(prefers-reduced-motion:reduce){.faq-a{transition-duration:.001ms}.faq-q .plus{transition-duration:.001ms}}
+
 /* ===== Process Section ===== */
 .process-steps{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem;position:relative}
 .process-steps::before{content:'';position:absolute;top:40px;left:10%;right:10%;height:2px;background:var(--gray-200);z-index:0}
@@ -347,6 +366,7 @@ body{font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif;co
       <li><a href="#services">服務項目</a></li>
       <li><a href="#documents">應備證件</a></li>
       <li><a href="#fee">收費標準</a></li>
+      <li><a href="#faq">常見問答</a></li>
       <li><a href="#contact">聯絡我們</a></li>
     </ul>
     <a href="https://line.me/ti/p/VRdSoA0hLw" target="_blank" rel="noopener" class="nav-cta">
@@ -971,6 +991,66 @@ body{font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif;co
   </div>
 </section>
 
+<!-- FAQ Section -->
+<section class="section" id="faq">
+  <div class="section-inner">
+    <div class="section-label">FAQ</div>
+    <h2 class="section-title">常見問答</h2>
+    <div class="divider"></div>
+    <p class="section-desc">整理客戶最常詢問的問題；若未涵蓋您的情況，歡迎來電或 LINE 洽詢</p>
+    <div class="faq-list">
+      <div class="faq-item reveal">
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-1">
+          <span class="qmark">Q</span><span class="qtext">地政士和代書是一樣的嗎？</span><span class="plus" aria-hidden="true"></span>
+        </button>
+        <div class="faq-a" id="faq-a-1"><div class="faq-a-inner">是的。「地政士」是依法經國家考試及格、領有證書執業的專業人員，早期民眾俗稱「代書」。章富萍地政士領有合法地政士證照，專辦不動產登記、稅務申報與契約文書等業務，您可安心委託。</div></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-2">
+          <span class="qmark">Q</span><span class="qtext">假日有營業嗎？預約方便嗎？</span><span class="plus" aria-hidden="true"></span>
+        </button>
+        <div class="faq-a" id="faq-a-2"><div class="faq-a-inner">我們服務時間為週一至週五 09:00–18:00，假日可預約。若您平日不便前來或有急件，歡迎先來電 03-3648690 或加 LINE 與我們約定時間，我們會盡力配合。</div></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-3">
+          <span class="qmark">Q</span><span class="qtext">買賣房屋過戶需要準備哪些文件？</span><span class="plus" aria-hidden="true"></span>
+        </button>
+        <div class="faq-a" id="faq-a-3"><div class="faq-a-inner">一般需備妥買賣雙方身分證、印章、印鑑證明，以及土地與建物所有權狀、最新登記謄本等。實際應備文件會依案件性質（自用、貸款、有無增建等）而不同，建議先與我們聯繫，由專人為您列出完整清單。</div></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-4">
+          <span class="qmark">Q</span><span class="qtext">辦理繼承登記有期限嗎？逾期會怎樣？</span><span class="plus" aria-hidden="true"></span>
+        </button>
+        <div class="faq-a" id="faq-a-4"><div class="faq-a-inner">遺產稅應自被繼承人死亡之日起 6 個月內申報，繼承登記亦應儘早辦理。逾期未辦理繼承登記，土地可能被地政機關列冊管理，影響日後處分與貸款，建議及早委託處理以保障權益。</div></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-5">
+          <span class="qmark">Q</span><span class="qtext">賣房子要繳哪些稅？金額怎麼計算？</span><span class="plus" aria-hidden="true"></span>
+        </button>
+        <div class="faq-a" id="faq-a-5"><div class="faq-a-inner">出售不動產主要涉及土地增值稅，以及房地合一稅（105 年後取得）或舊制財產交易所得稅。實際稅額需依持有期間、取得成本、公告現值與相關費用試算，我們可提供初步試算，協助您掌握稅負並合法節稅。</div></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-6">
+          <span class="qmark">Q</span><span class="qtext">委託代辦的流程大概是什麼？</span><span class="plus" aria-hidden="true"></span>
+        </button>
+        <div class="faq-a" id="faq-a-6"><div class="faq-a-inner">流程通常為：初步諮詢與報價 → 簽訂委任 → 產權調查與文件準備 → 稅務申報 → 送件登記 → 領狀交件。全程由專人為您處理並隨時回報進度，讓您安心等待結果即可。</div></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-7">
+          <span class="qmark">Q</span><span class="qtext">二親等以內親屬間買賣要注意什麼？</span><span class="plus" aria-hidden="true"></span>
+        </button>
+        <div class="faq-a" id="faq-a-7"><div class="faq-a-inner">兄弟姊妹、祖孫等二親等以內親屬間的買賣，依遺產及贈與稅法規定原則上「以贈與論」，須檢附實際支付價款的金流證明等資料向稽徵機關申報。建議事前妥善規劃，以免衍生額外贈與稅負擔。</div></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-8">
+          <span class="qmark">Q</span><span class="qtext">收費標準如何計算？</span><span class="plus" aria-hidden="true"></span>
+        </button>
+        <div class="faq-a" id="faq-a-8"><div class="faq-a-inner">收費依案件類型、件數與複雜度而定。我們會在委任前提供清楚透明的報價，讓您充分了解費用內容，絕不額外收取不合理費用。歡迎來電或加 LINE 索取報價。</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- Contact Section -->
 <section class="section" id="contact">
   <div class="section-inner">
@@ -1035,6 +1115,7 @@ body{font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif;co
         <li><a href="#services">服務項目</a></li>
         <li><a href="#documents">應備證件</a></li>
         <li><a href="#fee">收費標準</a></li>
+        <li><a href="#faq">常見問答</a></li>
         <li><a href="#contact">聯絡我們</a></li>
       </ul>
     </div>
@@ -1075,6 +1156,79 @@ body{font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif;co
 </div>
 
 <!-- Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "地政士和代書是一樣的嗎？",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "是的。「地政士」是依法經國家考試及格、領有證書執業的專業人員，早期民眾俗稱「代書」。章富萍地政士領有合法地政士證照，專辦不動產登記、稅務申報與契約文書等業務，您可安心委託。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "假日有營業嗎？預約方便嗎？",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "我們服務時間為週一至週五 09:00–18:00，假日可預約。若您平日不便前來或有急件，歡迎先來電 03-3648690 或加 LINE 與我們約定時間，我們會盡力配合。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "買賣房屋過戶需要準備哪些文件？",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "一般需備妥買賣雙方身分證、印章、印鑑證明，以及土地與建物所有權狀、最新登記謄本等。實際應備文件會依案件性質（自用、貸款、有無增建等）而不同，建議先與我們聯繫，由專人為您列出完整清單。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "辦理繼承登記有期限嗎？逾期會怎樣？",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "遺產稅應自被繼承人死亡之日起 6 個月內申報，繼承登記亦應儘早辦理。逾期未辦理繼承登記，土地可能被地政機關列冊管理，影響日後處分與貸款，建議及早委託處理以保障權益。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "賣房子要繳哪些稅？金額怎麼計算？",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "出售不動產主要涉及土地增值稅，以及房地合一稅（105 年後取得）或舊制財產交易所得稅。實際稅額需依持有期間、取得成本、公告現值與相關費用試算，我們可提供初步試算，協助您掌握稅負並合法節稅。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "委託代辦的流程大概是什麼？",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "流程通常為：初步諮詢與報價 → 簽訂委任 → 產權調查與文件準備 → 稅務申報 → 送件登記 → 領狀交件。全程由專人為您處理並隨時回報進度，讓您安心等待結果即可。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "二親等以內親屬間買賣要注意什麼？",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "兄弟姊妹、祖孫等二親等以內親屬間的買賣，依遺產及贈與稅法規定原則上「以贈與論」，須檢附實際支付價款的金流證明等資料向稽徵機關申報。建議事前妥善規劃，以免衍生額外贈與稅負擔。"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "收費標準如何計算？",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "收費依案件類型、件數與複雜度而定。我們會在委任前提供清楚透明的報價，讓您充分了解費用內容，絕不額外收取不合理費用。歡迎來電或加 LINE 索取報價。"
+      }
+    }
+  ]
+}
+</script>
+
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -1272,6 +1426,31 @@ body{font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC",sans-serif;co
         btn.classList.add('open');
         btn.setAttribute('aria-expanded','true');
         expand(body);
+      }
+    });
+  });
+})();
+
+// FAQ accordion — smooth, independent toggle
+(function(){
+  const items = Array.from(document.querySelectorAll('.faq-item'));
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  items.forEach(item => {
+    const btn = item.querySelector('.faq-q');
+    const body = item.querySelector('.faq-a');
+    if(!btn || !body) return;
+    btn.addEventListener('click', () => {
+      const open = item.classList.toggle('open');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if(reduce){ body.style.height = open ? 'auto' : '0px'; return; }
+      if(open){
+        body.style.height = body.scrollHeight + 'px';
+        const done = e => { if(e.propertyName==='height'){ body.style.height='auto'; body.removeEventListener('transitionend',done); } };
+        body.addEventListener('transitionend', done);
+      } else {
+        body.style.height = body.offsetHeight + 'px';
+        void body.offsetWidth;
+        body.style.height = '0px';
       }
     });
   });
