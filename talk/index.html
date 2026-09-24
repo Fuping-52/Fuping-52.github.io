@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>即時翻譯</title>
+<meta name="description" content="雙向語音即時翻譯：繁中・英・日・韓・泰・馬來語">
+<meta name="theme-color" content="#0b1020">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="即時翻譯">
+<meta name="format-detection" content="telephone=no">
+<style>
+:root{
+  --bg:#0b1020; --bg2:#0e1428; --surface:#161d33; --surface2:#1d2640;
+  --line:#28324f; --txt:#e8ecf5; --dim:#93a0bd; --faint:#5e6b8a;
+  --mine:#3b82f6; --mine-soft:#1e3a6b; --theirs:#f59e0b; --theirs-soft:#4a3410;
+  --ok:#22c55e; --err:#ef4444;
+  --safeT:env(safe-area-inset-top,0px); --safeB:env(safe-area-inset-bottom,0px);
+  --safeL:env(safe-area-inset-left,0px); --safeR:env(safe-area-inset-right,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;overscroll-behavior:none}
+body{
+  background:var(--bg); color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable","Segoe UI",
+    "Noto Sans TC","PingFang TC","Microsoft JhengHei",
+    "Noto Sans Thai","Noto Sans JP","Noto Sans KR",sans-serif;
+  font-size:16px; line-height:1.55; -webkit-text-size-adjust:100%;
+  display:flex; flex-direction:column;
+}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.hide{display:none!important}
+
+/* ── 頂列：語言配對 ───────────────────────── */
+header{
+  flex:0 0 auto; padding:calc(var(--safeT) + 10px) calc(var(--safeR) + 12px) 10px calc(var(--safeL) + 12px);
+  background:linear-gradient(180deg,var(--bg2),rgba(14,20,40,.86));
+  border-bottom:1px solid var(--line);
+  backdrop-filter:saturate(1.4) blur(8px);
+  display:flex; align-items:center; gap:8px;
+}
+.pill{
+  flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:flex-start;
+  gap:1px; padding:8px 12px; border-radius:14px; background:var(--surface);
+  border:1px solid var(--line); text-align:left; transition:border-color .15s,background .15s;
+}
+.pill:active{background:var(--surface2)}
+.pill .role{font-size:11px;letter-spacing:.14em;color:var(--faint)}
+.pill .lname{font-size:16px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+.pill.mine{border-color:#2a4a86} .pill.mine .role{color:#7ea8f0}
+.pill.theirs{border-color:#6b5215} .pill.theirs .role{color:#e3b45c}
+#swap{flex:0 0 auto;width:42px;height:42px;border-radius:50%;background:var(--surface);
+  border:1px solid var(--line);display:grid;place-items:center;font-size:17px;color:var(--dim)}
+#swap:active{transform:rotate(180deg);transition:transform .25s}
+#gear{flex:0 0 auto;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;
+  font-size:19px;color:var(--dim)}
+
+/* ── 提示條 ───────────────────────────────── */
+#notice{flex:0 0 auto;padding:9px 14px;font-size:13px;line-height:1.5;
+  background:#3a2412;color:#f6c88a;border-bottom:1px solid #543616;display:flex;gap:8px;align-items:flex-start}
+#notice b{color:#ffd9a3}
+#notice .x{margin-left:auto;flex:0 0 auto;color:#c99b5e;padding:0 4px;font-size:16px}
+
+/* ── 對話串 ───────────────────────────────── */
+/* min-height:0 不能省：flex 項目預設不會縮到比內容小，
+   少了它，對話串會把底部的麥克風鈕整個頂出畫面外。*/
+main{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:14px calc(var(--safeR) + 12px) 8px calc(var(--safeL) + 12px);
+  display:flex;flex-direction:column;gap:12px}
+.empty{margin:auto;text-align:center;color:var(--faint);padding:24px 10px;max-width:330px}
+.empty .big{font-size:44px;margin-bottom:10px;opacity:.55}
+.empty h2{font-size:16px;font-weight:600;color:var(--dim);margin:0 0 8px}
+.empty p{font-size:13.5px;margin:0 0 6px}
+.empty .kbd{display:inline-block;padding:1px 7px;border:1px solid var(--line);
+  border-radius:6px;background:var(--surface);color:var(--dim);font-size:12px}
+
+.row{display:flex;width:100%}
+.row.mine{justify-content:flex-end}
+.bub{
+  max-width:86%; padding:11px 14px; border-radius:18px; position:relative;
+  background:var(--surface); border:1px solid var(--line); animation:pop .18s ease-out;
+}
+@keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.row.mine .bub{background:var(--mine-soft);border-color:#2f5391;border-bottom-right-radius:6px}
+.row.theirs .bub{background:var(--theirs-soft);border-color:#6b5215;border-bottom-left-radius:6px}
+.bub .src{font-size:14px;color:var(--dim);margin-bottom:5px;word-break:break-word}
+.bub .dst{font-size:20px;font-weight:600;line-height:1.5;word-break:break-word}
+body.bigtext .bub .dst{font-size:27px}
+.bub.wait .dst{color:var(--faint)}
+.bub .tools{display:flex;gap:4px;margin-top:8px;opacity:.85}
+.bub .tools button{width:34px;height:30px;border-radius:9px;background:rgba(255,255,255,.06);
+  display:grid;place-items:center;font-size:14px}
+.bub .tools button:active{background:rgba(255,255,255,.14)}
+.bub .tag{position:absolute;top:-8px;font-size:10px;letter-spacing:.1em;color:var(--faint);
+  background:var(--bg);padding:0 6px;border-radius:5px}
+.row.mine .bub .tag{right:12px} .row.theirs .bub .tag{left:12px}
+.bub .warn{margin-top:6px;font-size:12px;color:#f0a0a0}
+
+/* 即時聽寫中 */
+#live{margin:0 auto;max-width:94%;text-align:center;color:var(--dim);font-size:15px;
+  padding:10px 16px;border-radius:14px;background:var(--surface);border:1px dashed var(--line)}
+#live .pv{margin-top:7px;padding-top:7px;border-top:1px dashed var(--line);
+  color:var(--faint);font-size:16px;font-style:italic}
+#live .dots span{animation:bl 1.1s infinite}
+
+/* 點原文可以改字重譯：辨識聽錯時不必整句重講 */
+.bub .src{cursor:text}
+.bub .edit{display:flex;gap:6px;margin-bottom:6px;align-items:center}
+.bub .edit input{flex:1 1 auto;min-width:0;padding:8px 10px;border-radius:9px;
+  background:rgba(0,0,0,.3);border:1px solid var(--line);color:var(--txt);font-size:15px;outline:none}
+.bub .edit input:focus{border-color:var(--mine)}
+.bub .edit button{flex:0 0 auto;width:36px;height:34px;border-radius:9px;
+  background:rgba(255,255,255,.1);display:grid;place-items:center;font-size:14px}
+#live .dots span:nth-child(2){animation-delay:.18s}
+#live .dots span:nth-child(3){animation-delay:.36s}
+@keyframes bl{0%,60%,100%{opacity:.25}30%{opacity:1}}
+
+/* ── 底部控制 ─────────────────────────────── */
+footer{
+  flex:0 0 auto; padding:10px calc(var(--safeR) + 12px) calc(var(--safeB) + 12px) calc(var(--safeL) + 12px);
+  background:linear-gradient(0deg,var(--bg2),rgba(14,20,40,.9));
+  border-top:1px solid var(--line);
+}
+/* 固定四欄，窄機身也保持一行 */
+.toolbar{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+/* min-width:0 同理：grid 項目預設也不肯縮到比內容窄，少了它整列會撐出畫面 */
+.chip{padding:7px 4px;border-radius:999px;background:var(--surface);border:1px solid var(--line);
+  font-size:12.5px;color:var(--dim);display:flex;align-items:center;justify-content:center;gap:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+@media (max-width:360px){ .chip{font-size:11.5px;gap:3px;padding:7px 2px} }
+.chip:active{background:var(--surface2)}
+.chip.on{background:#123a2a;border-color:#1f6b46;color:#6ee7a8}
+.mics{display:flex;gap:10px}
+.mic{
+  flex:1 1 0; min-height:76px; border-radius:20px; border:1px solid var(--line);
+  background:var(--surface); display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:3px; transition:transform .1s, background .15s, box-shadow .15s;
+}
+.mic:active{transform:scale(.97)}
+.mic .ic{font-size:25px;line-height:1}
+.mic .lb{font-size:13px;color:var(--dim);font-weight:600;max-width:100%;padding:0 6px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mic.mine{background:linear-gradient(160deg,#16294d,#121b33);border-color:#2a4a86}
+.mic.theirs{background:linear-gradient(160deg,#3d2c0c,#241a08);border-color:#6b5215}
+.mic.mine .lb{color:#a9c7f7} .mic.theirs .lb{color:#f0c880}
+.mic.live{box-shadow:0 0 0 3px rgba(239,68,68,.55), 0 0 24px rgba(239,68,68,.3)}
+.mic.live .ic{animation:puls .9s infinite}
+@keyframes puls{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.16);opacity:.65}}
+
+/* 鍵盤輸入列 */
+#typerow{display:flex;gap:8px;margin-top:10px}
+#typerow input{flex:1 1 auto;min-width:0;padding:12px 14px;border-radius:14px;background:var(--surface);
+  border:1px solid var(--line);color:var(--txt);font-size:16px;outline:none}
+#typerow input:focus{border-color:#3a548e}
+#typerow button{flex:0 0 auto;padding:0 18px;border-radius:14px;background:var(--mine);
+  color:#fff;font-weight:650;font-size:15px}
+#typeside{flex:0 0 auto;padding:0 12px;border-radius:14px;background:var(--surface);
+  border:1px solid var(--line);font-size:13px;color:var(--dim)}
+
+/* ── 覆蓋面板共用 ─────────────────────────── */
+.sheet{position:fixed;inset:0;z-index:40;background:rgba(6,9,18,.72);display:flex;
+  align-items:flex-end;animation:fade .16s}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet .panel{width:100%;max-height:88vh;overflow-y:auto;background:var(--bg2);
+  border-radius:22px 22px 0 0;border-top:1px solid var(--line);
+  padding:8px calc(var(--safeR) + 16px) calc(var(--safeB) + 20px) calc(var(--safeL) + 16px);
+  animation:up .22s cubic-bezier(.2,.9,.3,1)}
+@keyframes up{from{transform:translateY(14%)}to{transform:none}}
+.grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 14px}
+.sheet h3{margin:0 0 4px;font-size:17px}
+.sheet .sub{margin:0 0 14px;font-size:13px;color:var(--faint)}
+.sec{margin:18px 0 8px;font-size:12px;letter-spacing:.14em;color:var(--faint)}
+
+.langgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lang{padding:12px;border-radius:14px;background:var(--surface);border:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left}
+.lang .n{font-size:15px;font-weight:600} .lang .e{font-size:12px;color:var(--faint)}
+.lang.sel{border-color:var(--mine);background:#16294d}
+.lang.dis{opacity:.4}
+
+.opt{display:flex;align-items:center;gap:12px;padding:13px 2px;border-bottom:1px solid var(--line)}
+.opt:last-child{border-bottom:0}
+.opt .t{flex:1 1 auto;min-width:0}
+.opt .t b{display:block;font-size:15px;font-weight:600}
+.opt .t span{font-size:12.5px;color:var(--faint);line-height:1.45}
+.sw{flex:0 0 auto;width:50px;height:30px;border-radius:15px;background:var(--surface2);
+  border:1px solid var(--line);position:relative;transition:background .18s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;
+  background:var(--faint);transition:transform .18s,background .18s}
+.sw.on{background:#14532d;border-color:#1f6b46}
+.sw.on::after{transform:translateX(20px);background:#6ee7a8}
+.rng{flex:0 0 130px;accent-color:var(--mine)}
+.btn{display:block;width:100%;padding:13px;border-radius:14px;background:var(--surface);
+  border:1px solid var(--line);font-size:15px;font-weight:600;margin-top:10px;text-align:center}
+.btn.danger{color:#fca5a5;border-color:#5b2626}
+.btn.primary{background:var(--mine);border-color:var(--mine);color:#fff}
+
+/* 常用短句 */
+.cats{display:flex;gap:7px;overflow-x:auto;padding:2px 0 12px;-webkit-overflow-scrolling:touch}
+.cat{flex:0 0 auto;padding:7px 14px;border-radius:999px;background:var(--surface);
+  border:1px solid var(--line);font-size:13.5px;color:var(--dim);white-space:nowrap}
+.cat.sel{background:var(--mine);border-color:var(--mine);color:#fff}
+.phr{display:block;width:100%;text-align:left;padding:12px 14px;border-radius:13px;
+  background:var(--surface);border:1px solid var(--line);margin-bottom:7px;font-size:15px}
+.phr:active{background:var(--surface2)}
+.phr small{display:block;color:var(--faint);font-size:12px;margin-top:2px}
+
+/* ── 面對面模式 ───────────────────────────── */
+#face{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column}
+.half{flex:1 1 50%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:18px;position:relative;overflow:hidden}
+.half.top{transform:rotate(180deg);border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#241a08,#141021)}
+.half.bot{background:linear-gradient(180deg,#0f1730,#121b33)}
+.half .who{position:absolute;top:12px;left:16px;font-size:11px;letter-spacing:.16em;color:var(--faint)}
+.half .txt{font-size:clamp(20px,5.4vw,34px);font-weight:650;text-align:center;line-height:1.42;
+  max-height:60%;overflow-y:auto;width:100%;word-break:break-word}
+.half .txt.ph{color:var(--faint);font-weight:400;font-size:16px}
+.half .fmic{width:72px;height:72px;border-radius:50%;display:grid;place-items:center;font-size:29px;
+  background:var(--surface);border:1px solid var(--line);flex:0 0 auto}
+.half.top .fmic{background:#3d2c0c;border-color:#6b5215}
+.half.bot .fmic{background:#16294d;border-color:#2a4a86}
+.fmic.live{box-shadow:0 0 0 4px rgba(239,68,68,.5)}
+.fmic.live span{animation:puls .9s infinite;display:block}
+#facex{position:absolute;top:calc(var(--safeT) + 6px);right:14px;z-index:2;width:40px;height:40px;
+  border-radius:50%;background:rgba(255,255,255,.1);display:grid;place-items:center;font-size:17px}
+
+/* 大字卡 */
+#card{position:fixed;inset:0;z-index:60;background:#fff;color:#0b1020;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:18px}
+#card .t{font-size:clamp(28px,8.5vw,56px);font-weight:700;text-align:center;line-height:1.35;
+  word-break:break-word;max-height:72%;overflow-y:auto}
+#card .s{font-size:15px;color:#64748b;text-align:center}
+#card .close{position:absolute;top:calc(var(--safeT) + 12px);right:16px;width:42px;height:42px;
+  border-radius:50%;background:#e2e8f0;color:#334155;display:grid;place-items:center;font-size:19px}
+#card .rp{position:absolute;bottom:calc(var(--safeB) + 24px);padding:12px 26px;border-radius:999px;
+  background:#0b1020;color:#fff;font-size:15px;font-weight:600}
+
+#toast{position:fixed;left:50%;bottom:calc(var(--safeB) + 96px);transform:translateX(-50%);
+  z-index:90;background:#222c46;border:1px solid var(--line);color:var(--txt);padding:10px 18px;
+  border-radius:999px;font-size:14px;box-shadow:0 8px 28px rgba(0,0,0,.5);pointer-events:none;
+  opacity:0;transition:opacity .2s,transform .2s;max-width:88vw;text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(-6px)}
+
+@media (min-width:560px){
+  main,header,footer{max-width:620px;margin-left:auto;margin-right:auto;width:100%}
+  .bub{max-width:78%}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <button class="pill mine" id="pMine">
+    <span class="role">我方</span><span class="lname" id="nMine">繁體中文</span>
+  </button>
+  <button id="swap" title="對調語言">⇄</button>
+  <button class="pill theirs" id="pTheirs">
+    <span class="role">對方</span><span class="lname" id="nTheirs">English</span>
+  </button>
+  <button id="gear" title="設定">⚙</button>
+</header>
+
+<div id="notice" class="hide"><span id="noticeTxt"></span><button class="x" id="noticeX">✕</button></div>
+
+<main id="stream">
+  <div class="empty" id="empty">
+    <div class="big">🗣️</div>
+    <h2>按下方麥克風開始對話</h2>
+    <p>藍色鍵說<b id="eMine">中文</b>，橘色鍵讓對方說<b id="eTheirs">英文</b>。</p>
+    <p>翻譯結果會自動唸出來，點譯文可放大成<span class="kbd">大字卡</span>給對方看。</p>
+    <p>聽錯了？點上方的<span class="kbd">原文</span>就能改字重譯，不必整句重講。</p>
+  </div>
+</main>
+
+<footer>
+  <div class="toolbar">
+    <button class="chip" id="cAuto">🔁 免持對話</button>
+    <button class="chip" id="cFace">👥 面對面</button>
+    <button class="chip" id="cPhr">💬 常用句</button>
+    <button class="chip" id="cType">⌨️ 打字</button>
+  </div>
+  <div class="mics">
+    <button class="mic mine" id="mMine"><span class="ic">🎙️</span><span class="lb" id="lMine">中文</span></button>
+    <button class="mic theirs" id="mTheirs"><span class="ic">🎙️</span><span class="lb" id="lTheirs">English</span></button>
+  </div>
+  <div id="typerow" class="hide">
+    <button id="typeside">我方</button>
+    <input id="typein" placeholder="輸入文字後按送出" autocomplete="off" autocorrect="off">
+    <button id="typego">送出</button>
+  </div>
+</footer>
+
+<div id="toast"></div>
+<div id="sheets"></div>
+
+<script>
+"use strict";
+
+/* ═══════════════ 語言設定 ═══════════════
+   asr = 語音辨識用的 BCP-47 碼
+   tl  = 翻譯 API 用的語言碼
+   tts = 朗讀嗓音優先序（找不到就往後退）
+*/
+const LANGS = {
+  'zh-TW': {name:'繁體中文', en:'Chinese (Traditional)', short:'中文',
+            asr:'zh-TW', tl:'zh-TW', tts:['zh-TW','zh-HK','cmn-Hant-TW','zh-CN','zh']},
+  'en':    {name:'English',  en:'英文', short:'English',
+            asr:'en-US', tl:'en',    tts:['en-US','en-GB','en-AU','en']},
+  'ja':    {name:'日本語',   en:'日文', short:'日本語',
+            asr:'ja-JP', tl:'ja',    tts:['ja-JP','ja']},
+  'ko':    {name:'한국어',   en:'韓文', short:'한국어',
+            asr:'ko-KR', tl:'ko',    tts:['ko-KR','ko']},
+  'th':    {name:'ไทย',      en:'泰文', short:'ไทย',
+            asr:'th-TH', tl:'th',    tts:['th-TH','th']},
+  'ms':    {name:'Bahasa Melayu', en:'馬來文', short:'Melayu',
+            asr:'ms-MY', tl:'ms',    tts:['ms-MY','ms','id-ID','id']},
+};
+const LKEYS = Object.keys(LANGS);
+
+/* ═══════════════ 狀態 ═══════════════ */
+const DEF = {mine:'zh-TW', theirs:'en', auto:false, speak:true, rate:1,
+             big:false, keepAwake:true, beep:true, preview:true};
+let S = Object.assign({}, DEF, load('rt_cfg', {}));
+let LOG = load('rt_log', []);
+let TCACHE = load('rt_tcache', {});
+let listening = null;          // 'mine' | 'theirs' | null
+let faceOn = false, wakeLock = null, ttsReady = false;
+/* 免持對話：開啟後兩邊輪流聽，中途的停頓不算結束。
+   手機的辨識器靜音一兩秒就會自己收工，長句常被腰斬；
+   所以「沒聽到東西」時先當成還在想，繼續聽同一邊，連續 SILENT_MAX 次才真的停。*/
+let hands = false, silent = 0;
+const SILENT_MAX = 3;
+
+function load(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+function save(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+const saveCfg = () => save('rt_cfg', S);
+const $ = s => document.querySelector(s);
+
+/* ═══════════════ 翻譯：三組免金鑰引擎，前一組失敗自動換手 ═══════════════ */
+const PROVIDERS = [
+  { id:'gtx', async run(t, sl, tl){
+      const u = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(t)}`;
+      const d = await jget(u);
+      if (!Array.isArray(d) || !Array.isArray(d[0])) throw 0;
+      return d[0].map(x => x && x[0] ? x[0] : '').join('').trim();
+  }},
+  { id:'c5', async run(t, sl, tl){
+      const u = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${sl}&tl=${tl}&q=${encodeURIComponent(t)}`;
+      const d = await jget(u);
+      if (Array.isArray(d)) return (Array.isArray(d[0]) ? d[0][0] : d[0] || '').toString().trim();
+      if (d && Array.isArray(d.sentences)) return d.sentences.map(s => s.trans || '').join('').trim();
+      throw 0;
+  }},
+  { id:'mm', async run(t, sl, tl){
+      const u = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(t)}&langpair=${sl}|${tl}`;
+      const d = await jget(u);
+      const r = d && d.responseData && d.responseData.translatedText;
+      if (!r || /MYMEMORY WARNING|INVALID/i.test(r)) throw 0;
+      return r.trim();
+  }},
+];
+
+async function jget(url, ms = 9000){
+  const c = new AbortController();
+  const timer = setTimeout(() => c.abort(), ms);
+  try{
+    const r = await fetch(url, {signal:c.signal, referrerPolicy:'no-referrer'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(timer); }
+}
+
+async function translate(text, fromKey, toKey){
+  text = (text || '').trim();
+  if (!text) return '';
+  if (fromKey === toKey) return text;
+  const sl = LANGS[fromKey].tl, tl = LANGS[toKey].tl;
+  const ck = sl + '|' + tl + '|' + text;
+  if (TCACHE[ck]) return TCACHE[ck];
+  let lastErr = null;
+  for (const p of PROVIDERS){
+    try{
+      const out = await p.run(text, sl, tl);
+      if (out){
+        TCACHE[ck] = out;
+        const keys = Object.keys(TCACHE);
+        if (keys.length > 800) keys.slice(0, 200).forEach(k => delete TCACHE[k]);
+        save('rt_tcache', TCACHE);
+        return out;
+      }
+    }catch(e){ lastErr = e; }
+  }
+  throw new Error(navigator.onLine ? '三組翻譯引擎都沒有回應' : '目前沒有網路連線');
+}
+
+/* ═══════════════ 提示音 ═══════════════
+   面對面模式手機是平放在桌上的，對方看不到按鈕變紅。
+   開始聆聽升調、收音結束降調，讓對方知道什麼時候可以開口。
+   用 Web Audio 現場合成，不必外掛音檔，離線也能響。 */
+let actx = null;
+function unlockAudio(){
+  if (actx) return;
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) actx = new AC();
+  }catch(e){}
+}
+function beep(up){
+  if (!S.beep) return;
+  try{
+    unlockAudio();
+    if (!actx) return;
+    if (actx.state === 'suspended') actx.resume();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.connect(g); g.connect(actx.destination);
+    o.type = 'sine';
+    const t = actx.currentTime;
+    o.frequency.setValueAtTime(up ? 620 : 560, t);
+    o.frequency.exponentialRampToValueAtTime(up ? 960 : 380, t + 0.09);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+    o.start(t); o.stop(t + 0.14);
+  }catch(e){}
+  // iOS Safari 不支援震動，Android 有；失敗就算了
+  try{ navigator.vibrate && navigator.vibrate(up ? 30 : 18); }catch(e){}
+}
+
+/* ═══════════════ 朗讀 ═══════════════ */
+let VOICES = [];
+function loadVoices(){ try{ VOICES = speechSynthesis.getVoices() || []; }catch(e){ VOICES = []; } }
+if ('speechSynthesis' in window){
+  loadVoices();
+  speechSynthesis.onvoiceschanged = loadVoices;
+}
+const norm = s => (s || '').replace(/_/g, '-').toLowerCase();
+
+function pickVoice(key){
+  if (!VOICES.length) loadVoices();
+  const prefs = LANGS[key].tts;
+  for (const p of prefs){                                    // 先求完全吻合
+    const v = VOICES.find(v => norm(v.lang) === norm(p));
+    if (v) return v;
+  }
+  for (const p of prefs){                                    // 再退而求其次比對主語言
+    const base = norm(p).split('-')[0];
+    const v = VOICES.find(v => norm(v.lang).split('-')[0] === base);
+    if (v) return v;
+  }
+  return null;
+}
+
+/* iOS 必須在使用者手勢裡先「解鎖」語音合成，否則第一次不會出聲 */
+function unlockTTS(){
+  unlockAudio();                       // 提示音也要在手勢裡解鎖，否則 iOS 不出聲
+  if (ttsReady || !('speechSynthesis' in window)) return;
+  try{
+    const u = new SpeechSynthesisUtterance('');
+    u.volume = 0; speechSynthesis.speak(u); ttsReady = true;
+  }catch(e){}
+}
+
+/* Android 的朗讀在長句會被截斷，依標點切段送出。
+   這裡刻意不用 lookbehind 正規式：iOS 16.4 以前的 Safari 會在解析階段就整支報錯。*/
+const BREAKS = '。．.!！?？、,，;；\n';
+function chunk(text){
+  if (text.length <= 170) return [text];
+  const out = []; let cur = '';
+  for (let i = 0; i < text.length; i++){
+    cur += text[i];
+    const atBreak = BREAKS.indexOf(text[i]) >= 0;
+    if (atBreak && cur.length >= 60){ out.push(cur); cur = ''; }
+    else if (cur.length >= 170){ out.push(cur); cur = ''; }
+  }
+  if (cur.trim()) out.push(cur);
+  return out.length ? out : [text];
+}
+
+function speak(text, key){
+  return new Promise(resolve => {
+    if (!text || !S.speak || !('speechSynthesis' in window)) return resolve();
+    // Android Chrome 的朗讀引擎閒置久了會「睡著」，而且 cancel 後立刻 speak 常常整句吞掉
+    try{ speechSynthesis.cancel(); if (speechSynthesis.paused) speechSynthesis.resume(); }catch(e){}
+    const v = pickVoice(key);
+    const segs = chunk(text);
+    let i = 0, done = false;
+    const finish = () => { if (!done){ done = true; resolve(); } };
+    const guard = setTimeout(finish, 3000 + text.length * 120);   // 嗓音卡住時的保險
+    const next = () => {
+      if (i >= segs.length){ clearTimeout(guard); return finish(); }
+      const u = new SpeechSynthesisUtterance(segs[i++]);
+      if (v) u.voice = v;
+      u.lang = v ? v.lang : LANGS[key].tts[0];
+      u.rate = S.rate; u.pitch = 1;
+      u.onend = next;
+      u.onerror = () => { clearTimeout(guard); finish(); };
+      try{ speechSynthesis.speak(u); }catch(e){ clearTimeout(guard); finish(); }
+    };
+    setTimeout(next, 60);        // 給 cancel 一點時間落地，否則 Android 會不出聲
+  });
+}
+
+function hasVoiceFor(key){ return !!pickVoice(key); }
+
+/* ═══════════════ 語音辨識 ═══════════════ */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const SR_OK = !!SR;
+let rec = null, recStopping = false;
+
+function startListen(side){
+  if (!SR_OK){ toast('此瀏覽器不支援語音辨識，請改用打字'); showTyper(true); return; }
+  const was = listening;                    // stopListen() 會把 listening 清掉，先記下來
+  if (was){ stopListen(); if (was === side) return; }   // 再按同一顆＝停止
+  unlockTTS();
+  try{ speechSynthesis.cancel(); }catch(e){}
+
+  const fromKey = side === 'mine' ? S.mine : S.theirs;
+  const toKey   = side === 'mine' ? S.theirs : S.mine;
+
+  rec = new SR();
+  rec.lang = LANGS[fromKey].asr;
+  rec.interimResults = true;
+  rec.continuous = false;          // 一句一句來，兩邊輪流才不會亂
+  rec.maxAlternatives = 1;
+
+  let finalText = '';
+  recStopping = false;
+
+  rec.onstart = () => { listening = side; paintMics(); showLive(''); requestWake(); };
+  let previewTimer = null, lastPreview = '';
+  rec.onresult = e => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++){
+      const r = e.results[i];
+      if (r.isFinal) finalText += r[0].transcript; else interim += r[0].transcript;
+    }
+    const shown = finalText + interim;
+    showLive(shown);
+    /* 邊聽邊先翻一版灰字預覽。停頓 700ms 才送，避免每個字都打 API；
+       而且譯好的結果會進快取，等一下正式那次通常直接命中、幾乎不用等。*/
+    if (S.preview && shown.trim().length >= 4){
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => {
+        const q = shown.trim();
+        if (q === lastPreview) return;
+        lastPreview = q;
+        translate(q, fromKey, toKey)
+          .then(r => { if (listening === side) showLive(shown, r); })
+          .catch(() => {});
+      }, 700);
+    }
+  };
+  rec.onerror = e => {
+    const m = {
+      'not-allowed':'麥克風被拒絕。請到手機「設定 → Safari／Chrome → 麥克風」允許本網站',
+      'service-not-allowed':'系統擋下了語音服務，請確認網站已取得麥克風權限',
+      'no-speech':'沒有聽到聲音，再試一次',
+      'audio-capture':'找不到麥克風',
+      'network':'語音辨識需要網路連線',
+      'language-not-supported':`此裝置不支援「${LANGS[fromKey].name}」語音辨識，請改用打字`,
+    }[e.error];
+    if (e.error === 'aborted') return;
+    if (m) toast(m);
+    if (e.error === 'language-not-supported' || e.error === 'not-allowed') showTyper(true);
+    hands = false;
+  };
+  rec.onend = () => {
+    clearTimeout(previewTimer);
+    listening = null; paintMics(); releaseWake();
+    const t = finalText.trim();
+    if (t){
+      silent = 0; beep(false); hideLive();
+      handleUtterance(t, side, fromKey, toKey);
+      return;
+    }
+    // 沒收到句子：使用者主動停就結束；免持模式下當成停頓，繼續聽同一邊
+    if (hands && !recStopping && ++silent < SILENT_MAX){
+      showLive('');
+      setTimeout(() => { if (hands) startListen(side); }, 160);
+      return;
+    }
+    hideLive();
+    if (hands && silent >= SILENT_MAX) toast('一直沒有聲音，免持對話已結束');
+    hands = false; silent = 0;
+  };
+
+  try{ beep(true); rec.start(); }
+  catch(e){ toast('無法啟動麥克風，請重新整理頁面'); listening = null; paintMics(); }
+}
+
+function stopListen(){
+  if (rec && !recStopping){ recStopping = true; try{ rec.stop(); }catch(e){} }
+  listening = null; paintMics(); hideLive();
+}
+
+/* ═══════════════ 一句話的完整流程 ═══════════════ */
+async function handleUtterance(text, side, fromKey, toKey){
+  const entry = {id:Date.now() + '' + Math.random().toString(36).slice(2,6),
+                 side, from:fromKey, to:toKey, src:text, dst:'', err:'', ts:Date.now()};
+  LOG.push(entry);
+  if (LOG.length > 300) LOG = LOG.slice(-300);
+  render(); scrollEnd();
+
+  try{
+    entry.dst = await translate(text, fromKey, toKey);
+  }catch(e){
+    entry.err = e.message || '翻譯失敗';
+  }
+  save('rt_log', LOG); render(); scrollEnd(); paintFace();
+
+  if (entry.dst){
+    await speak(entry.dst, toKey);
+    if (hands){
+      const other = side === 'mine' ? 'theirs' : 'mine';
+      setTimeout(() => { if (hands) startListen(other); }, 300);
+    }
+  } else {
+    hands = false;
+  }
+}
+
+/* ═══════════════ 畫面繪製 ═══════════════ */
+function esc(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* 開場說明整段存起來：對話清空後要能再放回去，不能靠 DOM 裡還在不在 */
+const EMPTY_HTML = $('#empty').outerHTML;
+
+function render(){
+  const m = $('#stream');
+  const live = $('#live');
+  const liveHTML = live ? live.outerHTML : '';
+  if (!LOG.length){
+    m.innerHTML = EMPTY_HTML + liveHTML;
+    $('#eMine').textContent   = LANGS[S.mine].short;
+    $('#eTheirs').textContent = LANGS[S.theirs].short;
+    return;
+  }
+  m.innerHTML = LOG.map(e => `
+    <div class="row ${e.side}">
+      <div class="bub ${e.dst||e.err ? '' : 'wait'}" data-id="${e.id}">
+        <span class="tag">${esc(LANGS[e.from].short)} → ${esc(LANGS[e.to].short)}</span>
+        <div class="src" data-act="edit" title="點一下可修正辨識結果">${esc(e.src)}</div>
+        <div class="dst" data-act="card">${e.dst ? esc(e.dst) : (e.err ? '—' : '翻譯中…')}</div>
+        ${e.err ? `<div class="warn">⚠ ${esc(e.err)}　<b data-act="retry">重試</b></div>` : ''}
+        ${e.dst ? `<div class="tools">
+            <button data-act="say" title="重新朗讀">🔊</button>
+            <button data-act="card" title="放大給對方看">🔍</button>
+            <button data-act="copy" title="複製">📋</button>
+            <button data-act="del" title="刪除">🗑</button>
+          </div>` : ''}
+      </div>
+    </div>`).join('') + liveHTML;
+}
+
+function scrollEnd(){ const m = $('#stream'); m.scrollTop = m.scrollHeight; }
+
+function showLive(txt, preview){
+  let el = $('#live');
+  if (!el){ el = document.createElement('div'); el.id = 'live'; $('#stream').appendChild(el); }
+  el.innerHTML = txt
+    ? esc(txt) + (preview ? `<div class="pv">${esc(preview)}</div>` : '')
+    : `聆聽中<span class="dots"><span>・</span><span>・</span><span>・</span></span>`;
+  scrollEnd();
+}
+function hideLive(){ const el = $('#live'); if (el) el.remove(); }
+
+function paintMics(){
+  $('#mMine').classList.toggle('live', listening === 'mine');
+  $('#mTheirs').classList.toggle('live', listening === 'theirs');
+  const fb = $('#fBot'), ft = $('#fTop');
+  fb && fb.classList.toggle('live', listening === 'mine');
+  ft && ft.classList.toggle('live', listening === 'theirs');
+}
+
+function paintLangs(){
+  $('#nMine').textContent   = LANGS[S.mine].name;
+  $('#nTheirs').textContent = LANGS[S.theirs].name;
+  $('#lMine').textContent   = LANGS[S.mine].short;
+  $('#lTheirs').textContent = LANGS[S.theirs].short;
+  $('#cAuto').classList.toggle('on', S.auto);
+  document.body.classList.toggle('bigtext', S.big);
+  render(); paintFace();
+}
+
+function toast(msg, ms = 2600){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+function notice(html){
+  $('#noticeTxt').innerHTML = html;
+  $('#notice').classList.remove('hide');
+}
+
+/* ═══════════════ 修正辨識結果後重譯 ═══════════════ */
+function editSrc(en, bub){
+  const box = bub.querySelector('.src');
+  if (!box || box.querySelector('input')) return;
+  box.classList.add('edit');
+  box.innerHTML = `<input value="${esc(en.src)}" enterkeyhint="go">
+                   <button data-do="go" title="重新翻譯">↻</button>`;
+  box.addEventListener('click', e => e.stopPropagation());   // 別冒泡回去又觸發一次編輯
+  const inp = box.querySelector('input');
+  inp.focus(); inp.select();
+  const go = () => {
+    const v = inp.value.trim();
+    if (!v || v === en.src){ render(); return; }
+    en.src = v; en.dst = ''; en.err = '';
+    save('rt_log', LOG); render(); paintFace();
+    translate(v, en.from, en.to)
+      .then(r => { en.dst = r; save('rt_log', LOG); render(); paintFace(); speak(r, en.to); })
+      .catch(err => { en.err = err.message || '翻譯失敗'; render(); });
+  };
+  box.querySelector('[data-do="go"]').onclick = go;
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  // 點別處就放棄編輯；延遲是為了讓「重譯」那一下先送出去
+  inp.addEventListener('blur', () => setTimeout(() => { if (box.isConnected) render(); }, 220));
+}
+
+/* ═══════════════ 大字卡 ═══════════════ */
+function openCard(text, key){
+  const d = document.createElement('div');
+  d.id = 'card';
+  d.innerHTML = `<button class="close">✕</button>
+    <div class="t">${esc(text)}</div>
+    <div class="s">${esc(LANGS[key].name)}</div>
+    <button class="rp">🔊 再唸一次</button>`;
+  document.body.appendChild(d);
+  d.querySelector('.close').onclick = () => d.remove();
+  d.querySelector('.rp').onclick = () => speak(text, key);
+}
+
+/* ═══════════════ 面對面模式 ═══════════════ */
+function lastFor(key){
+  for (let i = LOG.length - 1; i >= 0; i--){
+    if (LOG[i].to === key && LOG[i].dst) return LOG[i].dst;
+    if (LOG[i].from === key && LOG[i].src) return LOG[i].src;
+  }
+  return '';
+}
+function paintFace(){
+  if (!faceOn) return;
+  const t = $('#fTopTxt'), b = $('#fBotTxt');
+  if (!t || !b) return;
+  // 語言名稱是開啟當下寫死的，換語言或對調後要跟著更新
+  const d = $('#face');
+  d.querySelector('.half.top .who').textContent = LANGS[S.theirs].name;
+  d.querySelector('.half.bot .who').textContent = LANGS[S.mine].name;
+  const tv = lastFor(S.theirs), bv = lastFor(S.mine);
+  t.textContent = tv || '請按下方麥克風說話';  t.classList.toggle('ph', !tv);
+  b.textContent = bv || '按麥克風說話';        b.classList.toggle('ph', !bv);
+}
+function openFace(){
+  faceOn = true;
+  const d = document.createElement('div');
+  d.id = 'face';
+  d.innerHTML = `
+    <button id="facex">✕</button>
+    <div class="half top">
+      <span class="who">${esc(LANGS[S.theirs].name)}</span>
+      <div class="txt ph" id="fTopTxt"></div>
+      <button class="fmic" id="fTop"><span>🎙️</span></button>
+    </div>
+    <div class="half bot">
+      <span class="who">${esc(LANGS[S.mine].name)}</span>
+      <div class="txt ph" id="fBotTxt"></div>
+      <button class="fmic" id="fBot"><span>🎙️</span></button>
+    </div>`;
+  document.body.appendChild(d);
+  $('#facex').onclick = closeFace;
+  $('#fTop').onclick  = () => tapMic('theirs');
+  $('#fBot').onclick  = () => tapMic('mine');
+  $('#cFace').classList.add('on');
+  paintFace(); requestWake();
+}
+function closeFace(){
+  faceOn = false;
+  const d = $('#face'); if (d) d.remove();
+  $('#cFace').classList.remove('on');
+  releaseWake();
+}
+
+/* ═══════════════ 螢幕恆亮 ═══════════════ */
+async function requestWake(){
+  if (!S.keepAwake || wakeLock || !('wakeLock' in navigator)) return;
+  try{
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  }catch(e){}
+}
+function releaseWake(){
+  if (wakeLock && !faceOn && !listening && !hands){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && (faceOn || hands)) requestWake();
+});
+
+/* ═══════════════ 面板：語言 / 設定 / 常用句 ═══════════════ */
+function sheet(html, after){
+  const d = document.createElement('div');
+  d.className = 'sheet';
+  d.innerHTML = `<div class="panel"><div class="grab"></div>${html}</div>`;
+  d.addEventListener('click', e => { if (e.target === d) d.remove(); });
+  $('#sheets').appendChild(d);
+  after && after(d);
+  return d;
+}
+
+function pickLang(who){
+  const cur = who === 'mine' ? S.mine : S.theirs;
+  const other = who === 'mine' ? S.theirs : S.mine;
+  const html = `<h3>選擇${who === 'mine' ? '我方' : '對方'}語言</h3>
+    <p class="sub">語音辨識與朗讀都由手機系統提供，未安裝的語言會自動改用打字。</p>
+    <div class="langgrid">${LKEYS.map(k => `
+      <button class="lang ${k === cur ? 'sel' : ''} ${k === other ? 'dis' : ''}" data-k="${k}" ${k === other ? 'disabled' : ''}>
+        <span class="n">${esc(LANGS[k].name)}</span>
+        <span class="e">${esc(LANGS[k].en)}${hasVoiceFor(k) ? '' : ' · 無朗讀嗓音'}</span>
+      </button>`).join('')}</div>`;
+  sheet(html, d => {
+    d.querySelectorAll('.lang').forEach(b => b.onclick = () => {
+      const k = b.dataset.k;
+      if (who === 'mine') S.mine = k; else S.theirs = k;
+      saveCfg(); paintLangs(); d.remove();
+      if (!hasVoiceFor(k)) toast(`此裝置沒有${LANGS[k].name}朗讀嗓音，僅顯示文字`);
+    });
+  });
+}
+
+function openSettings(){
+  const html = `<h3>設定</h3><p class="sub">全部設定只留在這支手機上。</p>
+    <div class="opt"><div class="t"><b>自動唸出譯文</b><span>翻譯完成後立刻用對方語言朗讀</span></div>
+      <button class="sw ${S.speak?'on':''}" data-t="speak"></button></div>
+    <div class="opt"><div class="t"><b>朗讀語速</b><span id="rlab">${S.rate.toFixed(1)} 倍</span></div>
+      <input class="rng" type="range" min="0.6" max="1.4" step="0.1" value="${S.rate}" id="rate"></div>
+    <div class="opt"><div class="t"><b>免持對話</b><span>按一次就好：兩邊輪流聽，中途停頓不算結束，連續沒聲音才停</span></div>
+      <button class="sw ${S.auto?'on':''}" data-t="auto"></button></div>
+    <div class="opt"><div class="t"><b>收音提示音</b><span>開始與結束收音各響一聲並震動，手機平放時對方才知道何時開口</span></div>
+      <button class="sw ${S.beep?'on':''}" data-t="beep"></button></div>
+    <div class="opt"><div class="t"><b>邊聽邊預覽譯文</b><span>話還沒說完就先顯示灰字草稿，正式譯文會更快出現</span></div>
+      <button class="sw ${S.preview?'on':''}" data-t="preview"></button></div>
+    <div class="opt"><div class="t"><b>加大譯文字級</b><span>對話串裡的譯文改用大字</span></div>
+      <button class="sw ${S.big?'on':''}" data-t="big"></button></div>
+    <div class="opt"><div class="t"><b>使用中保持螢幕不休眠</b><span>面對面模式與免持對話時生效</span></div>
+      <button class="sw ${S.keepAwake?'on':''}" data-t="keepAwake"></button></div>
+    <div class="sec">裝置狀態</div>
+    <div class="opt"><div class="t"><b>語音辨識</b><span>${SR_OK ? '可用' : '此瀏覽器不支援，請改用 Safari 或 Chrome'}</span></div></div>
+    <div class="opt"><div class="t"><b>朗讀嗓音</b><span id="vlist">${LKEYS.map(k => LANGS[k].short + (hasVoiceFor(k) ? ' ✓' : ' ✗')).join('　')}</span></div></div>
+    <button class="btn" id="clr">清空對話紀錄（${LOG.length} 句）</button>
+    <button class="btn danger" id="rst">全部回復預設值</button>
+    <p class="sub" style="margin-top:14px;text-align:center">章富萍地政士事務所 · 即時翻譯 v1.0</p>`;
+  sheet(html, d => {
+    d.querySelectorAll('.sw').forEach(b => b.onclick = () => {
+      const k = b.dataset.t; S[k] = !S[k]; b.classList.toggle('on', S[k]);
+      saveCfg(); paintLangs();
+      if (k === 'keepAwake' && !S.keepAwake && wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
+    });
+    const r = d.querySelector('#rate');
+    r.oninput = () => { S.rate = parseFloat(r.value); d.querySelector('#rlab').textContent = S.rate.toFixed(1) + ' 倍'; saveCfg(); };
+    d.querySelector('#clr').onclick = () => { LOG = []; save('rt_log', LOG); render(); d.remove(); toast('已清空'); };
+    d.querySelector('#rst').onclick = () => { S = Object.assign({}, DEF); saveCfg(); paintLangs(); d.remove(); toast('已回復預設值'); };
+  });
+}
+
+/* ═══════════════ 常用短句 ═══════════════ */
+const PHRASES = {
+  '打招呼':['你好，很高興認識你。','不好意思，打擾一下。','謝謝你，麻煩你了。','對不起，我聽不太懂。','請說慢一點好嗎？','再見，祝你有美好的一天。'],
+  '問路':['請問廁所在哪裡？','這裡怎麼去車站？','走路大概要幾分鐘？','可以幫我看一下地圖嗎？','我迷路了，請問我現在在哪裡？','最近的捷運站在哪邊？'],
+  '餐廳':['兩位，謝謝。','請給我菜單。','這道菜有什麼？','我不吃辣，請不要加辣。','我對海鮮過敏。','請幫我打包，謝謝。','買單，謝謝。'],
+  '購物':['這個多少錢？','可以算便宜一點嗎？','有其他顏色嗎？','可以刷卡嗎？','請給我收據。','我再看看，謝謝。'],
+  '住宿':['我有訂房，這是我的護照。','請問幾點可以入住？','房間的 Wi-Fi 密碼是什麼？','冷氣好像壞了。','可以幫我保管行李嗎？','我要退房。'],
+  '緊急':['請幫我叫救護車。','我需要看醫生。','我的錢包不見了。','請幫我報警。','我的手機沒電了，可以借充電嗎？','請幫我聯絡台灣的代表處。'],
+  '事務所接待':['您好，這裡是章富萍地政士事務所。','請問您要辦理什麼業務？','請攜帶護照與居留證正本。','這份文件需要您親自簽名。','外國人在台灣買房需要先申請許可。','我們會另外安排合格的通譯人員。','請問方便留下聯絡電話嗎？'],
+};
+function openPhrases(){
+  const cats = Object.keys(PHRASES);
+  let cur = cats[0];
+  const body = () => PHRASES[cur].map(p =>
+    `<button class="phr" data-p="${esc(p)}">${esc(p)}<small>翻成 ${esc(LANGS[S.theirs].name)} 並唸出來</small></button>`).join('');
+  const html = `<h3>常用句</h3><p class="sub">點一下就翻成對方語言並朗讀。用過的句子會存起來，之後沒網路也能用。</p>
+    <div class="cats">${cats.map(c => `<button class="cat ${c===cur?'sel':''}" data-c="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+    <div id="phrbody">${body()}</div>`;
+  sheet(html, d => {
+    const redraw = () => {
+      d.querySelector('#phrbody').innerHTML = body();
+      bind();
+    };
+    const bind = () => d.querySelectorAll('.phr').forEach(b => b.onclick = () => {
+      unlockTTS(); d.remove();
+      handleUtterance(b.dataset.p, 'mine', S.mine, S.theirs);
+    });
+    d.querySelectorAll('.cat').forEach(b => b.onclick = () => {
+      cur = b.dataset.c;
+      d.querySelectorAll('.cat').forEach(x => x.classList.toggle('sel', x === b));
+      redraw();
+    });
+    bind();
+  });
+}
+
+/* ═══════════════ 打字備援 ═══════════════ */
+let typeSide = 'mine';
+function showTyper(on){
+  $('#typerow').classList.toggle('hide', !on);
+  $('#cType').classList.toggle('on', on);
+  if (on) setTimeout(() => $('#typein').focus(), 60);
+}
+function sendTyped(){
+  const v = $('#typein').value.trim();
+  if (!v) return;
+  $('#typein').value = '';
+  unlockTTS();
+  const from = typeSide === 'mine' ? S.mine : S.theirs;
+  const to   = typeSide === 'mine' ? S.theirs : S.mine;
+  handleUtterance(v, typeSide, from, to);
+}
+
+/* ═══════════════ 事件綁定 ═══════════════ */
+$('#pMine').onclick   = () => pickLang('mine');
+$('#pTheirs').onclick = () => pickLang('theirs');
+$('#gear').onclick    = openSettings;
+$('#swap').onclick    = () => { const t = S.mine; S.mine = S.theirs; S.theirs = t; saveCfg(); paintLangs(); };
+$('#noticeX').onclick = () => $('#notice').classList.add('hide');
+
+/* 再按一次同一顆＝使用者要停，這時不能讓接力繼續跑下去 */
+function tapMic(side){
+  if (listening === side){ hands = false; stopListen(); return; }  // 再按一次＝停
+  hands = S.auto; silent = 0;
+  startListen(side);
+}
+$('#mMine').onclick   = () => tapMic('mine');
+$('#mTheirs').onclick = () => tapMic('theirs');
+
+$('#cAuto').onclick = () => {
+  S.auto = !S.auto; saveCfg(); paintLangs();
+  toast(S.auto ? '免持對話已開啟：按一次麥克風，之後兩邊自動輪流' : '免持對話已關閉');
+  if (!S.auto) hands = false;
+};
+$('#cFace').onclick = () => faceOn ? closeFace() : openFace();
+$('#cPhr').onclick  = openPhrases;
+$('#cType').onclick = () => showTyper($('#typerow').classList.contains('hide'));
+$('#typego').onclick = sendTyped;
+$('#typein').addEventListener('keydown', e => { if (e.key === 'Enter') sendTyped(); });
+$('#typeside').onclick = () => {
+  typeSide = typeSide === 'mine' ? 'theirs' : 'mine';
+  $('#typeside').textContent = typeSide === 'mine' ? '我方' : '對方';
+};
+
+/* 對話泡泡上的動作 */
+$('#stream').addEventListener('click', e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const bub = e.target.closest('.bub');
+  if (!bub) return;
+  const en = LOG.find(x => x.id === bub.dataset.id);
+  if (!en) return;
+  const act = btn.dataset.act;
+  if (act === 'edit') { editSrc(en, bub); }
+  else if (act === 'say')  { unlockTTS(); speak(en.dst, en.to); }
+  else if (act === 'card'){ if (en.dst) openCard(en.dst, en.to); }
+  else if (act === 'copy'){
+    const txt = en.dst || en.src;
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject())
+      .then(() => toast('已複製')).catch(() => toast('複製失敗，請長按文字手動複製'));
+  }
+  else if (act === 'del'){
+    LOG = LOG.filter(x => x.id !== en.id); save('rt_log', LOG); render(); paintFace();
+  }
+  else if (act === 'retry'){
+    en.err = ''; render();
+    translate(en.src, en.from, en.to)
+      .then(r => { en.dst = r; save('rt_log', LOG); render(); speak(r, en.to); })
+      .catch(err => { en.err = err.message; render(); });
+  }
+});
+
+/* 首次觸碰即解鎖 iOS 語音合成 */
+['touchend','mousedown'].forEach(ev =>
+  document.addEventListener(ev, function once(){ unlockTTS(); document.removeEventListener(ev, once); }, {passive:true}));
+
+window.addEventListener('offline', () => toast('目前離線：只有用過的句子能翻譯'));
+
+/* ═══════════════ 啟動 ═══════════════ */
+(function init(){
+  paintLangs(); render(); scrollEnd();
+  $('#typeside').textContent = '我方';
+
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const secure = window.isSecureContext;
+
+  if (location.protocol === 'file:'){
+    // 把檔案傳到手機直接點開會走到這裡：手機瀏覽器不給麥克風，也不能加到主畫面
+    notice('<b>這是用「檔案」直接開啟的，手機上不能這樣用。</b>'
+         + '麥克風會被封鎖、也無法加到主畫面。請把整個資料夾放到 https 網址再開。');
+  } else if (!secure){
+    notice('<b>網址不是 https，麥克風會被瀏覽器封鎖。</b>'
+         + '手機連電腦的區網位址（192.168.…）也一樣不行，請改用 https 網址開啟。');
+  } else if (!SR_OK){
+    notice('<b>這個瀏覽器不支援語音辨識。</b>iPhone 請用 Safari，Android 請用 Chrome；目前仍可用「打字」翻譯。');
+    showTyper(true);
+  } else if (isIOS && standalone && !load('rt_iosnote', false)){
+    notice('iPhone 提示：若從主畫面開啟時麥克風沒反應，改用 <b>Safari</b> 開同一個網址即可。');
+    save('rt_iosnote', true);
+  }
+
+  if ('serviceWorker' in navigator && secure){
+    navigator.serviceWorker.register('./sw.js', {scope:'./'}).catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
