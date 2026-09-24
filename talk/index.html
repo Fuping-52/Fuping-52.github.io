@@ -328,6 +328,7 @@ const DEF = {mine:'zh-TW', theirs:'en', auto:false, speak:true, rate:1,
 let S = Object.assign({}, DEF, load('rt_cfg', {}));
 let LOG = load('rt_log', []);
 let TCACHE = load('rt_tcache', {});
+let bestId = load('rt_best', null);      // 上次成功的翻譯引擎
 let listening = null;          // 'mine' | 'theirs' | null
 let faceOn = false, wakeLock = null, ttsReady = false;
 /* 免持對話：開啟後兩邊輪流聽，中途的停頓不算結束。
@@ -343,18 +344,21 @@ const $ = s => document.querySelector(s);
 
 /* ═══════════════ 翻譯：三組免金鑰引擎，前一組失敗自動換手 ═══════════════ */
 const PROVIDERS = [
-  { id:'gtx', async run(t, sl, tl){
-      const u = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(t)}`;
-      const d = await jget(u);
-      if (!Array.isArray(d) || !Array.isArray(d[0])) throw 0;
-      return d[0].map(x => x && x[0] ? x[0] : '').join('').trim();
-  }},
+  /* c5 排第一是實測結果：translate.googleapis.com 從 localhost 打得通，
+     但從真正的公開網域（https://fuping-52.github.io）會被 CORS 擋掉，
+     每次都要先撞一次失敗才換手。clients5 兩種來源都正常，六種語言與長句都試過。*/
   { id:'c5', async run(t, sl, tl){
       const u = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${sl}&tl=${tl}&q=${encodeURIComponent(t)}`;
       const d = await jget(u);
       if (Array.isArray(d)) return (Array.isArray(d[0]) ? d[0][0] : d[0] || '').toString().trim();
       if (d && Array.isArray(d.sentences)) return d.sentences.map(s => s.trans || '').join('').trim();
       throw 0;
+  }},
+  { id:'gtx', async run(t, sl, tl){
+      const u = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(t)}`;
+      const d = await jget(u);
+      if (!Array.isArray(d) || !Array.isArray(d[0])) throw 0;
+      return d[0].map(x => x && x[0] ? x[0] : '').join('').trim();
   }},
   { id:'mm', async run(t, sl, tl){
       const u = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(t)}&langpair=${sl}|${tl}`;
@@ -382,18 +386,22 @@ async function translate(text, fromKey, toKey){
   const sl = LANGS[fromKey].tl, tl = LANGS[toKey].tl;
   const ck = sl + '|' + tl + '|' + text;
   if (TCACHE[ck]) return TCACHE[ck];
-  let lastErr = null;
-  for (const p of PROVIDERS){
+  // 上次成功的那組先試：哪一組能用會隨網路環境而變，記起來就不必每次重新試錯
+  const order = bestId
+    ? [...PROVIDERS].sort((a, b) => (a.id === bestId ? -1 : 0) - (b.id === bestId ? -1 : 0))
+    : PROVIDERS;
+  for (const p of order){
     try{
       const out = await p.run(text, sl, tl);
       if (out){
+        if (bestId !== p.id){ bestId = p.id; save('rt_best', bestId); }
         TCACHE[ck] = out;
         const keys = Object.keys(TCACHE);
         if (keys.length > 800) keys.slice(0, 200).forEach(k => delete TCACHE[k]);
         save('rt_tcache', TCACHE);
         return out;
       }
-    }catch(e){ lastErr = e; }
+    }catch(e){ /* 這組不通就換下一組，最後都不通才丟錯 */ }
   }
   throw new Error(navigator.onLine ? '三組翻譯引擎都沒有回應' : '目前沒有網路連線');
 }
