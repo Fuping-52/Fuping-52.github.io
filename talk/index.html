@@ -159,7 +159,9 @@ footer{
 #typerow button{flex:0 0 auto;padding:0 18px;border-radius:14px;background:var(--mine);
   color:#fff;font-weight:650;font-size:15px}
 #typeside{flex:0 0 auto;padding:0 12px;border-radius:14px;background:var(--surface);
-  border:1px solid var(--line);font-size:13px;color:var(--dim)}
+  border:1px solid #2a4a86;font-size:13px;color:#a9c7f7;max-width:34%;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#typeside.theirs{border-color:#6b5215;color:#f0c880}
 
 /* ── 覆蓋面板共用 ─────────────────────────── */
 .sheet{position:fixed;inset:0;z-index:40;background:rgba(6,9,18,.72);display:flex;
@@ -325,20 +327,60 @@ const LKEYS = Object.keys(LANGS);
 /* ═══════════════ 狀態 ═══════════════ */
 const DEF = {mine:'zh-TW', theirs:'en', auto:false, speak:true, rate:1,
              big:false, keepAwake:true, beep:true, preview:true};
-let S = Object.assign({}, DEF, load('rt_cfg', {}));
-let LOG = load('rt_log', []);
-let TCACHE = load('rt_tcache', {});
-let bestId = load('rt_best', null);      // 上次成功的翻譯引擎
-let listening = null;          // 'mine' | 'theirs' | null
-let faceOn = false, wakeLock = null, ttsReady = false;
-/* 免持對話：開啟後兩邊輪流聽，中途的停頓不算結束。
-   手機的辨識器靜音一兩秒就會自己收工，長句常被腰斬；
-   所以「沒聽到東西」時先當成還在想，繼續聽同一邊，連續 SILENT_MAX 次才真的停。*/
-let hands = false, silent = 0;
-const SILENT_MAX = 3;
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 function load(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
 function save(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+/* 讀回存檔時逐欄檢查。存檔可能來自舊版或寫到一半被中斷；
+   只要一個欄位不對（例如語言代碼不存在），畫面一繪製就會丟例外，整支 App 停擺。
+   壞的欄位退回預設、好的保留。*/
+function loadCfg(){
+  const raw = load('rt_cfg', {}), src = isObj(raw) ? raw : {};
+  const s = {};
+  for (const k of Object.keys(DEF)) s[k] = typeof src[k] === typeof DEF[k] ? src[k] : DEF[k];
+  if (!LANGS[s.mine]) s.mine = DEF.mine;
+  if (!LANGS[s.theirs] || s.theirs === s.mine) s.theirs = s.mine !== DEF.theirs ? DEF.theirs : DEF.mine;
+  s.rate = Math.min(1.4, Math.max(0.6, s.rate || 1));
+  return s;
+}
+function loadLog(){
+  const raw = load('rt_log', []);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(e => isObj(e) && LANGS[e.from] && LANGS[e.to] && e.from !== e.to
+                        && (e.side === 'mine' || e.side === 'theirs') && typeof e.src === 'string' && e.src)
+    .map(e => {
+      const x = { id: String(e.id || '').replace(/[^\w-]/g, '') || newId(), side: e.side,
+                  from: e.from, to: e.to, src: e.src,
+                  dst: typeof e.dst === 'string' ? e.dst : '', err: typeof e.err === 'string' ? e.err : '',
+                  ts: +e.ts || 0 };
+      // 上次翻到一半就關掉的句子：沒有譯文也沒有錯誤，會永遠卡在「翻譯中…」，給它重試鈕
+      if (!x.dst && !x.err) x.err = '上次沒有翻譯完成';
+      return x;
+    }).slice(-300);
+}
+function loadCache(){
+  const raw = load('rt_tcache', {});
+  if (!isObj(raw)) return {};
+  for (const k of Object.keys(raw)) if (typeof raw[k] !== 'string' || !raw[k]) delete raw[k];
+  return raw;
+}
+
+let S = loadCfg();
+let LOG = loadLog();
+let TCACHE = loadCache();
+let bestId = load('rt_best', null);      // 上次成功的翻譯引擎（用的時候才驗證它還存在）
+let listening = null;          // 'mine' | 'theirs' | null
+let faceOn = false, wakeLock = null, ttsReady = false;
+/* 免持對話：開啟後兩邊輪流聽，中途的停頓不算結束。
+   手機的辨識器靜音一陣子就會自己收工；沒聽到東西時先當成對方還在想，繼續聽同一邊。
+   用「時間」而不是「次數」判斷何時放棄：Chrome 大約 8 秒才收工一次，iOS 快得多，
+   數次數的話兩邊的耐心會差好幾倍。次數上限只是防止辨識器秒退時原地狂轉。*/
+let hands = false, quietSince = 0, restarts = 0;
+const PATIENCE_MS = 20000, MAX_RESTARTS = 8;
 const saveCfg = () => save('rt_cfg', S);
 const $ = s => document.querySelector(s);
 
@@ -369,7 +411,8 @@ const PROVIDERS = [
   }},
 ];
 
-async function jget(url, ms = 9000){
+/* 單一引擎等多久就放棄、換下一組。對話中對方在等，9 秒太久；6 秒在漫遊網路下也還夠。*/
+async function jget(url, ms = 6000){
   const c = new AbortController();
   const timer = setTimeout(() => c.abort(), ms);
   try{
@@ -379,26 +422,50 @@ async function jget(url, ms = 9000){
   } finally { clearTimeout(timer); }
 }
 
-async function translate(text, fromKey, toKey){
+/* 邊聽邊預覽的草稿只放記憶體。
+   以前草稿也寫進存檔，一句話會留下「請問廁所」「請問廁所在哪」好幾筆半句，
+   把真正有用的整句從快取擠掉；而且說話時每 0.7 秒就把整包快取重寫一次存檔。
+   正式那次如果跟最後一版草稿一字不差，就直接拿來用，並在那時才寫進存檔。*/
+const PREVIEW = new Map();
+const INFLIGHT = new Map();        // 同一句正在翻：等它，不重打（草稿還沒回來、正式那次就到了）
+
+async function translate(text, fromKey, toKey, opt = {}){
   text = (text || '').trim();
   if (!text) return '';
   if (fromKey === toKey) return text;
   const sl = LANGS[fromKey].tl, tl = LANGS[toKey].tl;
   const ck = sl + '|' + tl + '|' + text;
   if (TCACHE[ck]) return TCACHE[ck];
+  let out = PREVIEW.get(ck);
+  if (!out){
+    if (!INFLIGHT.has(ck)) INFLIGHT.set(ck, fetchTranslation(text, sl, tl).finally(() => INFLIGHT.delete(ck)));
+    out = await INFLIGHT.get(ck);
+  }
+  if (opt.preview){
+    PREVIEW.set(ck, out);
+    if (PREVIEW.size > 30) PREVIEW.delete(PREVIEW.keys().next().value);
+  } else {
+    remember(ck, out);
+  }
+  return out;
+}
+
+function remember(ck, out){
+  TCACHE[ck] = out;
+  const keys = Object.keys(TCACHE);
+  if (keys.length > 800) keys.slice(0, 200).forEach(k => delete TCACHE[k]);
+  save('rt_tcache', TCACHE);
+}
+
+async function fetchTranslation(text, sl, tl){
   // 上次成功的那組先試：哪一組能用會隨網路環境而變，記起來就不必每次重新試錯
-  const order = bestId
-    ? [...PROVIDERS].sort((a, b) => (a.id === bestId ? -1 : 0) - (b.id === bestId ? -1 : 0))
-    : PROVIDERS;
+  const best = PROVIDERS.find(p => p.id === bestId);
+  const order = best ? [best, ...PROVIDERS.filter(p => p !== best)] : PROVIDERS;
   for (const p of order){
     try{
       const out = await p.run(text, sl, tl);
       if (out){
         if (bestId !== p.id){ bestId = p.id; save('rt_best', bestId); }
-        TCACHE[ck] = out;
-        const keys = Object.keys(TCACHE);
-        if (keys.length > 800) keys.slice(0, 200).forEach(k => delete TCACHE[k]);
-        save('rt_tcache', TCACHE);
         return out;
       }
     }catch(e){ /* 這組不通就換下一組，最後都不通才丟錯 */ }
@@ -463,9 +530,12 @@ function pickVoice(key){
   return null;
 }
 
-/* iOS 必須在使用者手勢裡先「解鎖」語音合成，否則第一次不會出聲 */
+/* iOS 必須在使用者手勢裡先「解鎖」語音合成，否則第一次不會出聲。
+   只能在點擊（pointerup／click）裡做：捲動結束也有 touchend，但 iOS 不把它當使用者動作，
+   在那裡解鎖等於白做，偏偏做過一次就不會再試，整個工作階段都可能沒聲音。*/
 function unlockTTS(){
   unlockAudio();                       // 提示音也要在手勢裡解鎖，否則 iOS 不出聲
+  try{ if (actx && actx.state === 'suspended') actx.resume(); }catch(e){}   // iOS 切回前景後常被暫停
   if (ttsReady || !('speechSynthesis' in window)) return;
   try{
     const u = new SpeechSynthesisUtterance('');
@@ -480,10 +550,12 @@ function chunk(text){
   if (text.length <= 170) return [text];
   const out = []; let cur = '';
   for (let i = 0; i < text.length; i++){
-    cur += text[i];
-    const atBreak = BREAKS.indexOf(text[i]) >= 0;
-    if (atBreak && cur.length >= 60){ out.push(cur); cur = ''; }
-    else if (cur.length >= 170){ out.push(cur); cur = ''; }
+    const ch = text[i];
+    cur += ch;
+    // 優先在標點切；泰文、英文長句常沒有標點，退而在空白切，免得把單字從中間切開
+    if ((BREAKS.indexOf(ch) >= 0 && cur.length >= 60) || (ch === ' ' && cur.length >= 120) || cur.length >= 170){
+      out.push(cur); cur = '';
+    }
   }
   if (cur.trim()) out.push(cur);
   return out.length ? out : [text];
@@ -496,18 +568,32 @@ function speak(text, key){
     try{ speechSynthesis.cancel(); if (speechSynthesis.paused) speechSynthesis.resume(); }catch(e){}
     const v = pickVoice(key);
     const segs = chunk(text);
-    let i = 0, done = false;
-    const finish = () => { if (!done){ done = true; resolve(); } };
-    const guard = setTimeout(finish, 3000 + text.length * 120);   // 嗓音卡住時的保險
+    let i = 0, done = false, guard = null;
+    const t0 = Date.now();
+    const finish = () => { if (!done){ done = true; clearTimeout(guard); resolve(); } };
+    /* 保險絲：萬一引擎一直不回 onend，對話不能卡死。
+       以前是「3 秒 ＋ 每字 0.12 秒」硬切，但中文一字要唸 0.25 秒以上，
+       28 字的中文譯文唸到一半保險絲就斷了 —— 免持模式接著開麥，順手把朗讀取消掉。
+       現在先估一個寬鬆的時間，到點時問引擎「還在講嗎」，還在講就繼續等（最多一分鐘）。*/
+    const cjk = (text.match(/[぀-ヿ㐀-鿿가-힯]/g) || []).length;
+    const est = (cjk * 300 + (text.length - cjk) * 90) / (S.rate || 1);
+    const watchdog = () => {
+      let busy = false;
+      try{ busy = speechSynthesis.speaking || speechSynthesis.pending; }catch(e){}
+      if (busy && Date.now() - t0 < 60000){ guard = setTimeout(watchdog, 600); return; }
+      finish();
+    };
+    guard = setTimeout(watchdog, 1500 + est * 1.3);
     const next = () => {
-      if (i >= segs.length){ clearTimeout(guard); return finish(); }
+      if (done) return;
+      if (i >= segs.length) return finish();
       const u = new SpeechSynthesisUtterance(segs[i++]);
       if (v) u.voice = v;
       u.lang = v ? v.lang : LANGS[key].tts[0];
       u.rate = S.rate; u.pitch = 1;
       u.onend = next;
-      u.onerror = () => { clearTimeout(guard); finish(); };
-      try{ speechSynthesis.speak(u); }catch(e){ clearTimeout(guard); finish(); }
+      u.onerror = finish;
+      try{ speechSynthesis.speak(u); }catch(e){ finish(); }
     };
     setTimeout(next, 60);        // 給 cancel 一點時間落地，否則 Android 會不出聲
   });
@@ -515,101 +601,141 @@ function speak(text, key){
 
 function hasVoiceFor(key){ return !!pickVoice(key); }
 
-/* ═══════════════ 語音辨識 ═══════════════ */
+/* ═══════════════ 語音辨識 ═══════════════
+   實測真實 Chromium 的兩個行為，決定了這一段的寫法：
+   1. 同一頁同時只能有一個辨識器。新的一啟動，舊的立刻收到 error(aborted) → end，
+      還沒送出的話直接丟掉。所以換邊不能「舊的 stop、新的馬上 start」——
+      要等舊的把話收完（stop 會把聽到一半的話轉成正式結果送出），才開另一邊。
+   2. 事件是非同步的，舊辨識器的 onend 可能在新的已經開始收音之後才到。
+      所以每個事件先確認「我還是不是現役的那一個」，過期的不准動畫面與狀態。*/
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const SR_OK = !!SR;
-let rec = null, recStopping = false;
+let rec = null;          // 現役辨識器
+let nextSide = null;     // 換邊排隊：現役的收完尾之後，接著開這一邊
 
-function startListen(side){
+const SR_MSG = {
+  'not-allowed': '麥克風被拒絕。請到手機「設定 → Safari／Chrome → 麥克風」允許本網站',
+  'service-not-allowed': IS_IOS
+    ? '語音辨識被系統擋下：請到「設定 → 一般 → 鍵盤」開啟「啟用聽寫」；若是從主畫面開的，改用 Safari 開同一網址'
+    : '系統擋下了語音服務，請確認網站已取得麥克風權限',
+  'no-speech': '沒有聽到聲音，再試一次',
+  'audio-capture': '找不到麥克風',
+  'network': '語音辨識需要網路連線',
+};
+
+function startListen(side, quiet){
   if (!SR_OK){ toast('此瀏覽器不支援語音辨識，請改用打字'); showTyper(true); return; }
-  const was = listening;                    // stopListen() 會把 listening 清掉，先記下來
-  if (was){ stopListen(); if (was === side) return; }   // 再按同一顆＝停止
+  if (rec){ const old = rec; rec = null; try{ old.abort(); }catch(e){} }   // 保險；正常流程不會走到
   unlockTTS();
   try{ speechSynthesis.cancel(); }catch(e){}
 
   const fromKey = side === 'mine' ? S.mine : S.theirs;
   const toKey   = side === 'mine' ? S.theirs : S.mine;
 
-  rec = new SR();
-  rec.lang = LANGS[fromKey].asr;
-  rec.interimResults = true;
-  rec.continuous = false;          // 一句一句來，兩邊輪流才不會亂
-  rec.maxAlternatives = 1;
+  const me = new SR();
+  rec = me;
+  me.side = side;
+  me.lang = LANGS[fromKey].asr;
+  me.interimResults = true;
+  me.continuous = false;          // 一句一句來，兩邊輪流才不會亂
+  me.maxAlternatives = 1;
+  const current = () => rec === me;
 
-  let finalText = '';
-  recStopping = false;
+  let finalText = '', shownNow = '', pvTimer = null, pvLast = '';
 
-  rec.onstart = () => { listening = side; paintMics(); showLive(''); requestWake(); };
-  let previewTimer = null, lastPreview = '';
-  rec.onresult = e => {
+  me.onstart = () => {
+    if (!current()) return;
+    listening = side; paintMics(); showLive(''); requestWake();
+  };
+  me.onresult = e => {
     let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++){
       const r = e.results[i];
       if (r.isFinal) finalText += r[0].transcript; else interim += r[0].transcript;
     }
-    const shown = finalText + interim;
-    showLive(shown);
-    /* 邊聽邊先翻一版灰字預覽。停頓 700ms 才送，避免每個字都打 API；
-       而且譯好的結果會進快取，等一下正式那次通常直接命中、幾乎不用等。*/
-    if (S.preview && shown.trim().length >= 4){
-      clearTimeout(previewTimer);
-      previewTimer = setTimeout(() => {
-        const q = shown.trim();
-        if (q === lastPreview) return;
-        lastPreview = q;
-        translate(q, fromKey, toKey)
-          .then(r => { if (listening === side) showLive(shown, r); })
+    if (!current() || me.userStopped) return;   // 字照收，但收尾中或過期的不再改畫面
+    shownNow = finalText + interim;
+    showLive(shownNow);
+    /* 邊聽邊先翻一版灰字預覽。停頓 700ms 才送，避免每個字都打 API。*/
+    if (S.preview && shownNow.trim().length >= 4){
+      clearTimeout(pvTimer);
+      pvTimer = setTimeout(() => {
+        const q = shownNow.trim();
+        if (!current() || q === pvLast) return;
+        pvLast = q;
+        translate(q, fromKey, toKey, {preview: true})
+          // 慢網路時草稿可能在這一輪結束後才回來，不能塞進下一輪的聆聽框
+          .then(r => { if (current() && listening === side) showLive(shownNow, r); })
           .catch(() => {});
       }, 700);
     }
   };
-  rec.onerror = e => {
-    const m = {
-      'not-allowed':'麥克風被拒絕。請到手機「設定 → Safari／Chrome → 麥克風」允許本網站',
-      'service-not-allowed':'系統擋下了語音服務，請確認網站已取得麥克風權限',
-      'no-speech':'沒有聽到聲音，再試一次',
-      'audio-capture':'找不到麥克風',
-      'network':'語音辨識需要網路連線',
-      'language-not-supported':`此裝置不支援「${LANGS[fromKey].name}」語音辨識，請改用打字`,
-    }[e.error];
-    if (e.error === 'aborted') return;
+  me.onerror = e => {
+    if (!current() || e.error === 'aborted') return;
+    // 免持對話中「沒聽到聲音」只是對方在想：不提示、不中止，交給 onend 決定要不要繼續聽。
+    // （真實 Chrome 在停頓時會先丟 no-speech 錯誤才 end；以前這裡把免持關掉，停頓容忍等於沒作用）
+    if (e.error === 'no-speech' && hands) return;
+    const m = e.error === 'language-not-supported'
+      ? `此裝置不支援「${LANGS[fromKey].name}」語音辨識，請改用打字` : SR_MSG[e.error];
     if (m) toast(m);
-    if (e.error === 'language-not-supported' || e.error === 'not-allowed') showTyper(true);
-    hands = false;
+    if (['language-not-supported', 'not-allowed', 'service-not-allowed'].includes(e.error)) showTyper(true);
+    me.failed = true;
+    hands = false; nextSide = null;
   };
-  rec.onend = () => {
-    clearTimeout(previewTimer);
-    listening = null; paintMics(); releaseWake();
+  me.onend = () => {
+    clearTimeout(pvTimer);
     const t = finalText.trim();
-    if (t){
-      silent = 0; beep(false); hideLive();
-      handleUtterance(t, side, fromKey, toKey);
+    if (!current()){                 // 已經不是現役：畫面不歸它管，但聽到的話不能丟
+      if (t) handleUtterance(t, side, fromKey, toKey, {quiet: true});
       return;
     }
-    // 沒收到句子：使用者主動停就結束；免持模式下當成停頓，繼續聽同一邊
-    if (hands && !recStopping && ++silent < SILENT_MAX){
-      showLive('');
-      setTimeout(() => { if (hands) startListen(side); }, 160);
+    rec = null;
+    listening = null; paintMics(); releaseWake();
+    const after = nextSide; nextSide = null;
+
+    if (t){
+      quietSince = 0; restarts = 0;
+      beep(false); hideLive();
+      handleUtterance(t, side, fromKey, toKey, {next: after});
       return;
+    }
+    if (after){ hideLive(); startListen(after); return; }
+
+    if (hands && !me.userStopped && !me.failed){
+      if (!quietSince) quietSince = Date.now();
+      if (Date.now() - quietSince < PATIENCE_MS && ++restarts <= MAX_RESTARTS){
+        showLive('');
+        // 持續聆聽，不再嗶：嗶聲的意思是「換你說」，每幾秒嗶一次只會讓人困惑
+        setTimeout(() => { if (hands && !rec) startListen(side, true); }, 160);
+        return;
+      }
+      toast('一直沒有聲音，免持對話已結束');
     }
     hideLive();
-    if (hands && silent >= SILENT_MAX) toast('一直沒有聲音，免持對話已結束');
-    hands = false; silent = 0;
+    hands = false; quietSince = 0; restarts = 0;
   };
 
-  try{ beep(true); rec.start(); }
-  catch(e){ toast('無法啟動麥克風，請重新整理頁面'); listening = null; paintMics(); }
+  try{
+    if (!quiet) beep(true);
+    me.start();
+  }catch(e){
+    rec = null; hands = false; nextSide = null;
+    toast('無法啟動麥克風，請重新整理頁面');
+    listening = null; paintMics(); hideLive();
+  }
 }
 
 function stopListen(){
-  if (rec && !recStopping){ recStopping = true; try{ rec.stop(); }catch(e){} }
+  const me = rec;
+  if (me && !me.userStopped){ me.userStopped = true; try{ me.stop(); }catch(e){} }
   listening = null; paintMics(); hideLive();
 }
 
-/* ═══════════════ 一句話的完整流程 ═══════════════ */
-async function handleUtterance(text, side, fromKey, toKey){
-  const entry = {id:Date.now() + '' + Math.random().toString(36).slice(2,6),
-                 side, from:fromKey, to:toKey, src:text, dst:'', err:'', ts:Date.now()};
+/* ═══════════════ 一句話的完整流程 ═══════════════
+   opt.next ：使用者說到一半就按了另一邊，這句處理完接著開那一邊
+   opt.quiet：過期辨識器補送的句子，只顯示，不唸也不接力 */
+async function handleUtterance(text, side, fromKey, toKey, opt = {}){
+  const entry = {id: newId(), side, from: fromKey, to: toKey, src: text, dst: '', err: '', ts: Date.now()};
   LOG.push(entry);
   if (LOG.length > 300) LOG = LOG.slice(-300);
   render(); scrollEnd();
@@ -620,16 +746,15 @@ async function handleUtterance(text, side, fromKey, toKey){
     entry.err = e.message || '翻譯失敗';
   }
   save('rt_log', LOG); render(); scrollEnd(); paintFace();
+  if (opt.quiet) return;
 
-  if (entry.dst){
-    await speak(entry.dst, toKey);
-    if (hands){
-      const other = side === 'mine' ? 'theirs' : 'mine';
-      setTimeout(() => { if (hands) startListen(other); }, 300);
-    }
-  } else {
-    hands = false;
-  }
+  // 譯文回來時如果已經有人在收音，就不要唸：麥克風會把譯文當成對方的話收進去。
+  // 字已經在畫面上，要聽可以按 🔊。
+  if (entry.dst && !rec) await speak(entry.dst, toKey);
+
+  const go = opt.next || (hands && entry.dst ? (side === 'mine' ? 'theirs' : 'mine') : null);
+  if (!entry.dst && !opt.next) hands = false;
+  if (go) setTimeout(() => { if (!rec && (opt.next || hands)) startListen(go); }, 300);
 }
 
 /* ═══════════════ 畫面繪製 ═══════════════ */
@@ -692,6 +817,7 @@ function paintLangs(){
   $('#lTheirs').textContent = LANGS[S.theirs].short;
   $('#cAuto').classList.toggle('on', S.auto);
   document.body.classList.toggle('bigtext', S.big);
+  paintTypeSide();
   render(); paintFace();
 }
 
@@ -721,7 +847,7 @@ function editSrc(en, bub){
     en.src = v; en.dst = ''; en.err = '';
     save('rt_log', LOG); render(); paintFace();
     translate(v, en.from, en.to)
-      .then(r => { en.dst = r; save('rt_log', LOG); render(); paintFace(); speak(r, en.to); })
+      .then(r => { en.dst = r; save('rt_log', LOG); render(); paintFace(); if (!rec) speak(r, en.to); })
       .catch(err => { en.err = err.message || '翻譯失敗'; render(); });
   };
   box.querySelector('[data-do="go"]').onclick = go;
@@ -805,7 +931,10 @@ function releaseWake(){
   if (wakeLock && !faceOn && !listening && !hands){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && (faceOn || hands)) requestWake();
+  if (document.visibilityState === 'hidden'){
+    // 切到背景時系統會收回麥克風。放著讓免持對話自己重開，會在背景撞出「麥克風被拒絕」
+    if (rec || hands){ hands = false; nextSide = null; stopListen(); }
+  } else if (faceOn) requestWake();
 });
 
 /* ═══════════════ 面板：語言 / 設定 / 常用句 ═══════════════ */
@@ -860,7 +989,7 @@ function openSettings(){
     <div class="opt"><div class="t"><b>朗讀嗓音</b><span id="vlist">${LKEYS.map(k => LANGS[k].short + (hasVoiceFor(k) ? ' ✓' : ' ✗')).join('　')}</span></div></div>
     <button class="btn" id="clr">清空對話紀錄（${LOG.length} 句）</button>
     <button class="btn danger" id="rst">全部回復預設值</button>
-    <p class="sub" style="margin-top:14px;text-align:center">章富萍地政士事務所 · 即時翻譯 v1.0</p>`;
+    <p class="sub" style="margin-top:14px;text-align:center">章富萍地政士事務所 · 即時翻譯 v1.1</p>`;
   sheet(html, d => {
     d.querySelectorAll('.sw').forEach(b => b.onclick = () => {
       const k = b.dataset.t; S[k] = !S[k]; b.classList.toggle('on', S[k]);
@@ -912,6 +1041,13 @@ function openPhrases(){
 
 /* ═══════════════ 打字備援 ═══════════════ */
 let typeSide = 'mine';
+/* 按鈕直接寫出現在要用哪種語言打字，比「我方／對方」一眼就懂；顏色跟麥克風鍵一致 */
+function paintTypeSide(){
+  const k = typeSide === 'mine' ? S.mine : S.theirs;
+  $('#typeside').textContent = LANGS[k].short;
+  $('#typeside').classList.toggle('theirs', typeSide === 'theirs');
+  $('#typein').placeholder = `輸入${LANGS[k].short}後按送出`;
+}
 function showTyper(on){
   $('#typerow').classList.toggle('hide', !on);
   $('#cType').classList.toggle('on', on);
@@ -934,10 +1070,14 @@ $('#gear').onclick    = openSettings;
 $('#swap').onclick    = () => { const t = S.mine; S.mine = S.theirs; S.theirs = t; saveCfg(); paintLangs(); };
 $('#noticeX').onclick = () => $('#notice').classList.add('hide');
 
-/* 再按一次同一顆＝使用者要停，這時不能讓接力繼續跑下去 */
 function tapMic(side){
-  if (listening === side){ hands = false; stopListen(); return; }  // 再按一次＝停
-  hands = S.auto; silent = 0;
+  // 再按一次同一顆＝使用者要停，接力也不能繼續跑下去
+  if (listening === side || (rec && rec.side === side && !rec.userStopped)){
+    hands = false; nextSide = null; stopListen(); return;
+  }
+  hands = S.auto; quietSince = 0; restarts = 0;
+  // 另一邊正在收音：「我講完了，換你」——先讓它把話收完送出，收完才開這一邊
+  if (rec){ nextSide = side; stopListen(); return; }
   startListen(side);
 }
 $('#mMine').onclick   = () => tapMic('mine');
@@ -955,7 +1095,7 @@ $('#typego').onclick = sendTyped;
 $('#typein').addEventListener('keydown', e => { if (e.key === 'Enter') sendTyped(); });
 $('#typeside').onclick = () => {
   typeSide = typeSide === 'mine' ? 'theirs' : 'mine';
-  $('#typeside').textContent = typeSide === 'mine' ? '我方' : '對方';
+  paintTypeSide();
 };
 
 /* 對話泡泡上的動作 */
@@ -981,24 +1121,21 @@ $('#stream').addEventListener('click', e => {
   else if (act === 'retry'){
     en.err = ''; render();
     translate(en.src, en.from, en.to)
-      .then(r => { en.dst = r; save('rt_log', LOG); render(); speak(r, en.to); })
+      .then(r => { en.dst = r; save('rt_log', LOG); render(); paintFace(); if (!rec) speak(r, en.to); })
       .catch(err => { en.err = err.message; render(); });
   }
 });
 
-/* 首次觸碰即解鎖 iOS 語音合成 */
-['touchend','mousedown'].forEach(ev =>
-  document.addEventListener(ev, function once(){ unlockTTS(); document.removeEventListener(ev, once); }, {passive:true}));
+/* 在點擊裡解鎖 iOS 的語音合成與提示音（為什麼不用 touchend 見 unlockTTS）。
+   掛在 capture 階段，按鈕自己的處理程序執行前就先解鎖好。*/
+['pointerup', 'click'].forEach(ev => document.addEventListener(ev, unlockTTS, {capture: true, passive: true}));
 
 window.addEventListener('offline', () => toast('目前離線：只有用過的句子能翻譯'));
 
 /* ═══════════════ 啟動 ═══════════════ */
 (function init(){
   paintLangs(); render(); scrollEnd();
-  $('#typeside').textContent = '我方';
 
-  const ua = navigator.userAgent;
-  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   const secure = window.isSecureContext;
 
@@ -1012,7 +1149,7 @@ window.addEventListener('offline', () => toast('目前離線：只有用過的�
   } else if (!SR_OK){
     notice('<b>這個瀏覽器不支援語音辨識。</b>iPhone 請用 Safari，Android 請用 Chrome；目前仍可用「打字」翻譯。');
     showTyper(true);
-  } else if (isIOS && standalone && !load('rt_iosnote', false)){
+  } else if (IS_IOS && standalone && !load('rt_iosnote', false)){
     notice('iPhone 提示：若從主畫面開啟時麥克風沒反應，改用 <b>Safari</b> 開同一個網址即可。');
     save('rt_iosnote', true);
   }

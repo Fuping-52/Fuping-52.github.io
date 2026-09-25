@@ -2,7 +2,7 @@
    只負責把 App 外殼（HTML／圖示／設定檔）存起來，讓沒網路時也開得起來。
    翻譯用的是別網域的 API，一律不攔截、不快取，直接讓它走網路。 */
 
-const CACHE = 'rt-shell-v2';
+const CACHE = 'rt-shell-v3';
 const SHELL = [
   './',
   './index.html',
